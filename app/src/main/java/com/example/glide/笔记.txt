@@ -1,0 +1,99 @@
+TODO Glide源码难度很高：
+1.之前有一位同学，看Glide源码，看了一周时间，没有找到在哪里网络请求地方。
+2.分析其他的图片加载框架，一般来说是很顺利的，但是分析Glide却是困难重重。
+3.Glide框架难度是由于体积巨大，我们看到的一行，其实背后用成吨成吨的代码来处理的。
+4.我们现在分析 最新版本的 Glide 4.11 4.11和其他版本差异很大，做了很大的优化，属于比较完美了，后续更新也没有以前那么快了。
+5.太庞大
+
+TODO 分析源码思路，同学们可以参考借鉴，以后任何的源码分析，都可以按照这种思路走：  老师是怎么看源码
+第一大步：只管主线 简单的走通    不要管支线  不要管支线  不要管支线 重要事情说三遍 【我们就按照这个思路来分析源码哦】
+第二大步：重点在主线，稍微瞄一眼支线
+第三大步：稍微分析支线，回顾主线
+第四大步：分析支线细节，回顾主线
+第五大步：分析支线细节，来寻找答案
+
+TODO 面试题系列：=========================================
+
+0.项目中大量的使用了Glide，偶尔会出现内存溢出问题，请说说大概是什么原因？
+答：？？？
+答：尽量在with的时候，传入有生命周期的作用域(非Application作用域)，尽量避免使用了Application作用域，因为Application作用域不会对页面绑定生命周期机制，就回收不及时释放操作等....
+
+1.使用Glide为什么要加入网络权限？ <uses-permission android:name="android.permission.INTERNET" />
+答：？？？
+答：等待队列/运行队列 执行Request ---> 活动缓存 --->内存缓存 ---> jobs.get检测执行的任务有没有执行完成 ---> HttpUrlFetcher.HttpURLConnection
+
+2.使用Glide时，with函数在子线程中，会有什么问题？
+答：？？？
+答：子线程，不会去添加 生命周期机制， 主线程才会添加 空白的Fragment 去监听 Activity Fragment 的变化。
+
+3.使用Glide时，with函数传入Application后，Glide内部会怎么处理？
+答：？？？
+答：在MainActivity中，MainActivity销毁了，并会让Glide生命周期机制处理回收，只有在整个APP应用都没有的时候，跟随着销毁（上节课 ApplicationLIfecycle add onStart  onDestroy 什么事情都没有做）。
+
+4.Glide源码里面的缓存，为什么要有 活动缓存 还需要 有内存缓存？
+答：
+
+TODO 源码分析笔记：=======================================
+第一步：【with】
+  public RequestManager get(@NonNull FragmentActivity activity) {
+    if (Util.isOnBackgroundThread()) {
+      // Application 作用域
+    } else {
+      // 非Application 作用域
+    }
+  }
+
+第二步：【load】
+最终返回：RequestBuilder
+
+第三步：【into】  看源码的思路，如果遇到接口怎么办？ 前面必须 埋下伏笔
+
+1.  ImageViewTarget（显示图片） 无论走多远多远，最终一定回到这里ImageViewTarget  埋下伏笔
+    return into(
+              glideContext.buildImageViewTarget(view, transcodeClass),  ImageViewTarget
+          );
+
+2.  Request request = new SingleRequest 埋下伏笔
+
+3.  SingleRequest   public void begin() {...}
+
+
+4.       if (Util.isValidDimensions(overrideWidth, overrideHeight)) {
+            onSizeReady(overrideWidth, overrideHeight); 用户设置 宽和高
+          } else {
+            target.getSize(this); 用户没有设置 宽和高  再次测量 -----> onSizeReady
+          }
+
+5.        memoryResource = loadFromMemory(key, isMemoryCacheable, startTime);  活动缓存 内存缓存
+          if (memoryResource == null) {
+              缓存没有
+          }
+          cb.onResourceReady(memoryResource, DataSource.MEMORY_CACHE); 命中缓存 回调去显示了
+
+
+6.        EngineJob<?> current = jobs.get(key, onlyRetrieveFromCache); 查找有没有正在运行的任务
+
+
+7.        EngineJob线程池大管家  DecodeJob执行的任务
+
+8.        currentGenerator = getNextGenerator();  SourceGenerator 埋下伏笔
+
+9.        SourceGenerator  分析   LoadData<Data> buildLoadData 没有埋下伏笔   Glide预习资料（构造函数 注册机）
+          .append(GlideUrl.class, InputStream.class, new HttpGlideUrlLoader.Factory())  Glide 注册机 埋下了伏笔
+
+          List<LoadData<?>> getLoadData() == HttpGlideUrlLoader {目标HttpUrlFetcher}
+
+          最终返回：HttpUrlFetcher  终于找到了 网络访问的地方 HttpUrlConn 来得到 InputStream
+
+10        public Resource<Transcode> decode(
+          {
+              // InputStream  ---> Bitmap  == decoded
+              Resource<ResourceType> decoded = decodeResource(rewinder, width, height, options);
+              Resource<ResourceType> transformed = callback.onResourceDecoded(decoded); // 回调回去
+              return transcoder.transcode(transformed, options);
+            }
+
+生命周期，缓存机制（第三节重点点 缓存，第二节课的缓存 只是稍微提了下）
+
+工作中更有用：
+Glide的使用：https://blog.csdn.net/guolin_blog/article/details/53759439
